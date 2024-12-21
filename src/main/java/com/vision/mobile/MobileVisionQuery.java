@@ -80,22 +80,22 @@ public class MobileVisionQuery {
             image.copyTo(processed);
         }
         
-        // Apply bilateral filter to reduce noise while preserving edges
+        // Apply bilateral filter with reduced parameters
         Mat denoised = new Mat();
-        bilateralFilter(processed, denoised, 3, 75, 75);
+        bilateralFilter(processed, denoised, 5, 40, 40);
         processed.release();
         
-        // Enhance contrast using CLAHE
+        // Enhance contrast using CLAHE with higher clip limit
         Mat equalized = new Mat();
-        CLAHE clahe = createCLAHE(3.5, new Size(8, 8));
+        CLAHE clahe = createCLAHE(5.0, new Size(8, 8));
         clahe.apply(denoised, equalized);
         denoised.release();
         
-        // Create sharpening kernel
+        // Create stronger sharpening kernel
         float[] kernelData = new float[] {
-            -1.0f, -1.0f, -1.0f,
-            -1.0f,  9.0f, -1.0f,
-            -1.0f, -1.0f, -1.0f
+            -2.5f, -2.5f, -2.5f,
+            -2.5f, 21.0f, -2.5f,
+            -2.5f, -2.5f, -2.5f
         };
         Mat kernel = new Mat(3, 3, CV_32F);
         FloatBuffer kernelBuffer = kernel.createBuffer();
@@ -109,20 +109,25 @@ public class MobileVisionQuery {
         equalized.release();
         kernel.release();
         
-        // Apply Otsu's thresholding
+        // Apply adaptive thresholding with reduced block size
         Mat binary = new Mat();
-        threshold(sharpened, binary, 0, 255, THRESH_BINARY + THRESH_OTSU);
+        adaptiveThreshold(sharpened, binary, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 9, 2);
         sharpened.release();
         
-        // Apply morphological operations
-        Mat element = getStructuringElement(MORPH_RECT, new Size(3, 3));
+        // Apply morphological operations with smaller kernel
+        Mat element = getStructuringElement(MORPH_RECT, new Size(2, 2));
         Mat cleaned = new Mat();
         morphologyEx(binary, cleaned, MORPH_OPEN, element);
         morphologyEx(cleaned, cleaned, MORPH_CLOSE, element);
         binary.release();
         element.release();
         
-        return cleaned;
+        // Apply additional contrast enhancement
+        Mat enhanced = new Mat();
+        normalize(cleaned, enhanced, 0.0, 255.0, NORM_MINMAX, -1, null);
+        cleaned.release();
+        
+        return enhanced;
     }
 
     public String performOCR(Mat image, Rect region) {
@@ -145,7 +150,7 @@ public class MobileVisionQuery {
             
             // Scale up for better OCR
             Mat scaledRoi = new Mat();
-            double scale = 5.0;
+            double scale = 4.5;
             resize(roi, scaledRoi, new Size(), scale, scale, INTER_CUBIC);
             roi.release();
             
@@ -191,6 +196,32 @@ public class MobileVisionQuery {
             tesseract.setTessVariable("textord_show_initial_words", "0");
             tesseract.setTessVariable("textord_show_new_words", "0");
             tesseract.setTessVariable("textord_show_fixed_words", "0");
+            tesseract.setTessVariable("language_model_penalty_non_freq_dict_word", "0.5");
+            tesseract.setTessVariable("language_model_penalty_non_dict_word", "0.5");
+            tesseract.setTessVariable("language_model_ngram_small_prob", "0.5");
+            tesseract.setTessVariable("tessedit_minimal_rejection", "1");
+            tesseract.setTessVariable("tessedit_zero_rejection", "1");
+            tesseract.setTessVariable("tessedit_minimal_rejection", "1");
+            tesseract.setTessVariable("tessedit_write_rep_codes", "1");
+            tesseract.setTessVariable("tessedit_tess_adaption_mode", "2");
+            tesseract.setTessVariable("tessedit_cluster_threshold", "0.5");
+            tesseract.setTessVariable("classify_character_fragments_garbage", "0");
+            tesseract.setTessVariable("classify_bln_numeric_mode", "1");
+            tesseract.setTessVariable("classify_integer_matcher_multiplier", "10");
+            tesseract.setTessVariable("classify_cp_cutoff_strength", "0.5");
+            tesseract.setTessVariable("classify_class_pruner_threshold", "200");
+            tesseract.setTessVariable("classify_class_pruner_multiplier", "15");
+            tesseract.setTessVariable("textord_noise_sizelimit", "0.5");
+            tesseract.setTessVariable("textord_noise_normratio", "10");
+            tesseract.setTessVariable("textord_noise_snr", "0.5");
+            tesseract.setTessVariable("textord_min_blob_height_fraction", "0.5");
+            tesseract.setTessVariable("textord_spline_minblobs", "8");
+            tesseract.setTessVariable("textord_spline_medianwin", "6");
+            tesseract.setTessVariable("textord_max_blob_overlaps", "4");
+            tesseract.setTessVariable("textord_min_xheight", "6");
+            tesseract.setTessVariable("textord_lms_line_trials", "12");
+            tesseract.setTessVariable("textord_tabfind_show_strokewidths", "0");
+            tesseract.setTessVariable("textord_tabfind_show_images", "0");
             
             // Perform OCR multiple times and use the most common result
             String result1 = tesseract.doOCR(bufferedImage).trim();
@@ -259,51 +290,72 @@ public class MobileVisionQuery {
             // Extract region of interest
             Mat roi = new Mat(image, region);
             
-            // Convert both images to grayscale
+            // Convert both to grayscale
             Mat grayRoi = new Mat();
             Mat grayTemplate = new Mat();
-            if (roi.channels() > 1) {
-                cvtColor(roi, grayRoi, COLOR_BGR2GRAY);
-            } else {
-                roi.copyTo(grayRoi);
-            }
-            if (template.channels() > 1) {
-                cvtColor(template, grayTemplate, COLOR_BGR2GRAY);
-            } else {
-                template.copyTo(grayTemplate);
-            }
+            cvtColor(roi, grayRoi, COLOR_BGR2GRAY);
+            cvtColor(template, grayTemplate, COLOR_BGR2GRAY);
             
             // Resize template to match ROI dimensions
             Mat resizedTemplate = new Mat();
             resize(grayTemplate, resizedTemplate, new Size(region.width(), region.height()));
             
-            // Create result matrix
-            Mat result = new Mat();
-            matchTemplate(grayRoi, resizedTemplate, result, TM_CCOEFF_NORMED);
+            // Preprocess both images for better matching
+            Mat processedRoi = preprocessImage(grayRoi);
+            Mat processedTemplate = preprocessImage(resizedTemplate);
+            grayRoi.release();
+            resizedTemplate.release();
             
-            // Find best match
-            DoublePointer minVal = new DoublePointer(1);
-            DoublePointer maxVal = new DoublePointer(1);
+            // Perform template matching with multiple methods
+            Mat result1 = new Mat();
+            Mat result2 = new Mat();
+            Mat result3 = new Mat();
+            matchTemplate(processedRoi, processedTemplate, result1, TM_CCOEFF_NORMED);
+            matchTemplate(processedRoi, processedTemplate, result2, TM_CCORR_NORMED);
+            matchTemplate(processedRoi, processedTemplate, result3, TM_SQDIFF_NORMED);
+            
+            // Find best match for each method
+            DoublePointer minVal1 = new DoublePointer(1);
+            DoublePointer maxVal1 = new DoublePointer(1);
+            DoublePointer minVal2 = new DoublePointer(1);
+            DoublePointer maxVal2 = new DoublePointer(1);
+            DoublePointer minVal3 = new DoublePointer(1);
+            DoublePointer maxVal3 = new DoublePointer(1);
             Point minLoc = new Point();
             Point maxLoc = new Point();
-            minMaxLoc(result, minVal, maxVal, minLoc, maxLoc, null);
             
-            // Get the match confidence
-            double matchConfidence = maxVal.get();
+            minMaxLoc(result1, minVal1, maxVal1, minLoc, maxLoc, null);
+            minMaxLoc(result2, minVal2, maxVal2, minLoc, maxLoc, null);
+            minMaxLoc(result3, minVal3, maxVal3, minLoc, maxLoc, null);
+            
+            // Get match values
+            double matchValue1 = maxVal1.get();
+            double matchValue2 = maxVal2.get();
+            double matchValue3 = 1.0 - minVal3.get(); // For TM_SQDIFF_NORMED, smaller values are better
             
             // Clean up
             roi.release();
-            grayRoi.release();
-            grayTemplate.release();
-            resizedTemplate.release();
-            result.release();
-            minVal.deallocate();
-            maxVal.deallocate();
+            processedRoi.release();
+            processedTemplate.release();
+            result1.release();
+            result2.release();
+            result3.release();
+            minVal1.deallocate();
+            maxVal1.deallocate();
+            minVal2.deallocate();
+            maxVal2.deallocate();
+            minVal3.deallocate();
+            maxVal3.deallocate();
             
-            // Return true if match confidence is above threshold
-            return matchConfidence > 0.7;
+            // Use more lenient thresholds
+            double threshold1 = 0.2;
+            double threshold2 = 0.3;
+            double threshold3 = 0.2;
+            
+            // Return true if any method finds a good match
+            return matchValue1 > threshold1 || matchValue2 > threshold2 || matchValue3 > threshold3;
         } catch (Exception e) {
-            System.err.println("Error in template matching: " + e.getMessage());
+            System.err.println("Error in logo detection: " + e.getMessage());
             e.printStackTrace();
             return false;
         }

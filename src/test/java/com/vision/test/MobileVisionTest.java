@@ -75,30 +75,30 @@ public class MobileVisionTest {
         // Create rectangles using ByteDeco's OpenCV API with bounds checking
         Rect headerRegion = new Rect(
             maxWidth / 4,
-            maxHeight / 30,
+            maxHeight / 20,
             maxWidth / 2,
-            maxHeight / 6
+            maxHeight / 5
         ).position(0);
 
         Rect chooseLanguageRegion = new Rect(
             maxWidth / 4,
-            maxHeight / 4,
+            maxHeight / 3,
             maxWidth / 2,
-            maxHeight / 6
+            maxHeight / 7
         ).position(0);
 
         Rect hindiRegion = new Rect(
             maxWidth / 4,
-            maxHeight / 2 - maxHeight / 8,
+            maxHeight / 2,
             maxWidth / 2,
-            maxHeight / 5
+            maxHeight / 4
         ).position(0);
 
         Rect englishRegion = new Rect(
             maxWidth / 4,
-            2 * maxHeight / 3 - maxHeight / 8,
+            3 * maxHeight / 4 - maxHeight / 8,
             maxWidth / 2,
-            maxHeight / 5
+            maxHeight / 4
         ).position(0);
 
         // Log region dimensions for debugging
