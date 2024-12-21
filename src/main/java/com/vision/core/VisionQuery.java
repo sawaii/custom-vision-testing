@@ -55,6 +55,9 @@ public class VisionQuery {
         log.info("JNA platform library path: {}", System.getProperty("jna.platform.library.path"));
         log.info("JNA platform: {}", System.getProperty("jna.platform"));
         log.info("Java library path: {}", System.getProperty("java.library.path"));
+
+        // Ensure Tesseract data path includes Hindi language data
+        tesseract.setDatapath("/opt/homebrew/share/tessdata"); // Confirm this path contains 'hin.traineddata'
     }
 
     public String findText(File imageFile) throws TesseractException {

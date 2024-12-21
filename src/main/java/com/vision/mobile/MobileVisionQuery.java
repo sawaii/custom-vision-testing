@@ -19,10 +19,16 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static org.bytedeco.opencv.global.opencv_core.*;
 import static org.bytedeco.opencv.global.opencv_imgproc.*;
 import static org.bytedeco.opencv.global.opencv_imgcodecs.*;
+import org.bytedeco.opencv.opencv_core.Scalar;
 
 public class MobileVisionQuery {
     private static final String TESS_DATA_PATH = "/opt/homebrew/share/tessdata";
@@ -44,15 +50,33 @@ public class MobileVisionQuery {
         this.tesseract = new Tesseract();
         tesseract.setDatapath(TESS_DATA_PATH);
         
+        // Configure Tesseract languages
+        tesseract.setLanguage("eng+hin");
+        
+        // Set DPI for better text recognition
+        tesseract.setTessVariable("user_defined_dpi", "600");
+        
         // Configure Tesseract for better text detection
-        tesseract.setPageSegMode(3); // PSM_AUTO
-        tesseract.setOcrEngineMode(1); // LSTM_ONLY
+        tesseract.setPageSegMode(3);  // Changed to PSM_AUTO
+        tesseract.setOcrEngineMode(1);
+        
+        // Additional Tesseract optimization parameters
+        tesseract.setTessVariable("tessedit_do_invert", "0");
+        tesseract.setTessVariable("textord_heavy_nr", "1");
+        tesseract.setTessVariable("textord_min_linesize", "1.5");
+        tesseract.setTessVariable("edges_max_children_per_outline", "40");
+        tesseract.setTessVariable("edges_min_nonhole", "12");
+        tesseract.setTessVariable("tessedit_pageseg_mode", "3");
+        
+        // Configure Tesseract for better text detection
+        tesseract.setPageSegMode(6);
+        tesseract.setOcrEngineMode(1);
         
         // Set additional Tesseract parameters
-        tesseract.setTessVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ");
+        tesseract.setTessVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 हिंदी");
         tesseract.setTessVariable("tessedit_create_hocr", "0");
         tesseract.setTessVariable("tessedit_create_txt", "1");
-        tesseract.setTessVariable("tessedit_pageseg_mode", "3");
+        tesseract.setTessVariable("tessedit_pageseg_mode", "6");
         tesseract.setTessVariable("tessedit_do_invert", "0");
         tesseract.setTessVariable("debug_file", "/dev/null");
         tesseract.setTessVariable("user_defined_dpi", "300");
@@ -80,22 +104,36 @@ public class MobileVisionQuery {
             image.copyTo(processed);
         }
         
-        // Apply bilateral filter with reduced parameters
-        Mat denoised = new Mat();
-        bilateralFilter(processed, denoised, 5, 40, 40);
+        // Apply Gaussian blur to reduce noise
+        Mat blurred = new Mat();
+        GaussianBlur(processed, blurred, new Size(3, 3), 0);
         processed.release();
+        saveMatAsImage(blurred, "debug_blurred.png");
         
-        // Enhance contrast using CLAHE with higher clip limit
+        // Apply bilateral filter with adjusted parameters
+        Mat denoised = new Mat();
+        bilateralFilter(blurred, denoised, 5, 50, 50);
+        blurred.release();
+        saveMatAsImage(denoised, "debug_denoised.png");
+        
+        // Enhance contrast using CLAHE with adjusted clip limit
         Mat equalized = new Mat();
-        CLAHE clahe = createCLAHE(5.0, new Size(8, 8));
+        CLAHE clahe = createCLAHE(2.0, new Size(4, 4));  // Reduced tile size and clip limit
         clahe.apply(denoised, equalized);
         denoised.release();
+        saveMatAsImage(equalized, "debug_clahe.png");
         
-        // Create stronger sharpening kernel
+        // Apply additional contrast stretching
+        Mat stretched = new Mat();
+        normalize(equalized, stretched, 0.0, 255.0, NORM_MINMAX, CV_8U, null);
+        equalized.release();
+        saveMatAsImage(stretched, "debug_stretched.png");
+        
+        // Create sharpening kernel
         float[] kernelData = new float[] {
-            -2.5f, -2.5f, -2.5f,
-            -2.5f, 21.0f, -2.5f,
-            -2.5f, -2.5f, -2.5f
+            0.0f, -1.0f,  0.0f,
+            -1.0f, 5.0f, -1.0f,
+            0.0f, -1.0f,  0.0f
         };
         Mat kernel = new Mat(3, 3, CV_32F);
         FloatBuffer kernelBuffer = kernel.createBuffer();
@@ -105,35 +143,39 @@ public class MobileVisionQuery {
         
         // Apply sharpening
         Mat sharpened = new Mat();
-        filter2D(equalized, sharpened, -1, kernel);
-        equalized.release();
+        filter2D(stretched, sharpened, -1, kernel);
+        stretched.release();
         kernel.release();
+        saveMatAsImage(sharpened, "debug_sharpened.png");
         
-        // Apply adaptive thresholding with reduced block size
+        // Apply adaptive thresholding with adjusted block size and C value
         Mat binary = new Mat();
-        adaptiveThreshold(sharpened, binary, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 9, 2);
+        adaptiveThreshold(sharpened, binary, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 21, 8);
         sharpened.release();
+        saveMatAsImage(binary, "debug_binary.png");
         
-        // Apply morphological operations with smaller kernel
+        // Apply morphological operations with adjusted kernel size
         Mat element = getStructuringElement(MORPH_RECT, new Size(2, 2));
         Mat cleaned = new Mat();
         morphologyEx(binary, cleaned, MORPH_OPEN, element);
+        
+        // Add dilation to connect broken text
+        Mat dilated = new Mat();
+        dilate(cleaned, dilated, element, new Point(-1, -1), 1, BORDER_CONSTANT, new Scalar(0, 0, 0, 0));
         morphologyEx(cleaned, cleaned, MORPH_CLOSE, element);
         binary.release();
         element.release();
         
-        // Apply additional contrast enhancement
-        Mat enhanced = new Mat();
-        normalize(cleaned, enhanced, 0.0, 255.0, NORM_MINMAX, -1, null);
-        cleaned.release();
+        // Save morphologically cleaned image
+        saveMatAsImage(cleaned, "debug_cleaned.png");
         
-        return enhanced;
+        return cleaned;
     }
 
     public String performOCR(Mat image, Rect region) {
         try {
             // Add padding to ensure full text capture
-            int padding = 25;
+            int padding = 40;  // Increased padding
             int x = Math.max(0, region.x() - padding);
             int y = Math.max(0, region.y() - padding);
             int width = Math.min(image.cols() - x, region.width() + 2 * padding);
@@ -150,7 +192,7 @@ public class MobileVisionQuery {
             
             // Scale up for better OCR
             Mat scaledRoi = new Mat();
-            double scale = 4.5;
+            double scale = 6.0;  // Increased scaling factor
             resize(roi, scaledRoi, new Size(), scale, scale, INTER_CUBIC);
             roi.release();
             
@@ -166,11 +208,11 @@ public class MobileVisionQuery {
             processedRoi.release();
             
             // Configure Tesseract for this specific region
-            tesseract.setPageSegMode(7); // PSM_SINGLE_LINE
+            tesseract.setPageSegMode(6);
             tesseract.setTessVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 हिंदी");
             tesseract.setTessVariable("tessedit_do_invert", "0");
             tesseract.setTessVariable("debug_file", "/dev/null");
-            tesseract.setTessVariable("tessedit_pageseg_mode", "7");
+            tesseract.setTessVariable("tessedit_pageseg_mode", "6");
             tesseract.setTessVariable("tessedit_write_images", "1");
             tesseract.setTessVariable("textord_heavy_nr", "1");
             tesseract.setTessVariable("edges_max_children_per_outline", "50");
@@ -227,19 +269,24 @@ public class MobileVisionQuery {
             String result1 = tesseract.doOCR(bufferedImage).trim();
             String result2 = tesseract.doOCR(bufferedImage).trim();
             String result3 = tesseract.doOCR(bufferedImage).trim();
+            String result4 = tesseract.doOCR(bufferedImage).trim();
+            String result5 = tesseract.doOCR(bufferedImage).trim();
             
             // Clean up the results
             result1 = result1.replaceAll("\\s+", " ").trim();
             result2 = result2.replaceAll("\\s+", " ").trim();
             result3 = result3.replaceAll("\\s+", " ").trim();
+            result4 = result4.replaceAll("\\s+", " ").trim();
+            result5 = result5.replaceAll("\\s+", " ").trim();
             
             // Return the most common result
-            if (result1.equals(result2) || result1.equals(result3)) {
-                return result1;
-            } else if (result2.equals(result3)) {
-                return result2;
-            }
-            return result1;
+            List<String> results = Arrays.asList(result1, result2, result3, result4, result5);
+            Map<String, Long> freqMap = results.stream()
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+            return freqMap.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("");
         } catch (TesseractException e) {
             System.err.println("OCR failed: " + e.getMessage());
             e.printStackTrace();

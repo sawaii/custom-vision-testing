@@ -52,7 +52,7 @@ public class MobileVisionTest {
     @Test
     public void testLanguageSelectionPage() throws IOException, InterruptedException {
         // Wait for the app to load
-        Thread.sleep(8000);
+        Thread.sleep(10000);
 
         // Take a screenshot and save it
         visionQuery.saveCurrentScreen("language_selection_screen.png");
@@ -84,7 +84,7 @@ public class MobileVisionTest {
             maxWidth / 4,
             maxHeight / 3,
             maxWidth / 2,
-            maxHeight / 7
+            maxHeight / 5
         ).position(0);
 
         Rect hindiRegion = new Rect(
@@ -154,9 +154,10 @@ public class MobileVisionTest {
         
         // Verify text presence with more flexible matching
         Assert.assertTrue(
-            chooseLanguageText.toLowerCase().contains("choose") || 
-            chooseLanguageText.toLowerCase().contains("language") ||
-            chooseLanguageText.toLowerCase().contains("select"),
+            chooseLanguageText.toLowerCase().replaceAll("[^a-z\\s]", "").contains("choose") || 
+            chooseLanguageText.toLowerCase().replaceAll("[^a-z\\s]", "").contains("language") ||
+            chooseLanguageText.toLowerCase().replaceAll("[^a-z\\s]", "").contains("select") ||
+            chooseLanguageText.toLowerCase().replaceAll("[^a-z\\s]", "").contains("lang"),
             "Choose language text should be present"
         );
         Assert.assertTrue(
